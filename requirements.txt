@@ -1,0 +1,17 @@
+# Model access and tracing
+openai>=1.50
+langfuse>=3.0
+
+# Config, data models, environment
+python-dotenv>=1.0
+pydantic>=2.0
+pyyaml>=6.0
+
+# Metrics and dashboard
+pandas>=2.0
+streamlit>=1.40
+plotly>=5.0
+
+# Testing and linting
+pytest>=8.0
+ruff>=0.6
