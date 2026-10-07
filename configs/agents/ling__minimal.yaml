@@ -1,0 +1,7 @@
+name: ling__minimal
+model: ling
+prompt: minimal
+temperature: 0.0
+max_steps: 15
+max_run_cost_usd: 0.25
+reasoning_effort: null
