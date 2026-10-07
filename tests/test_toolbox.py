@@ -13,12 +13,13 @@ def test_list_tables_includes_core_tables():
 
 def test_describe_table_returns_columns():
     cols = tb.describe_table("customers")["columns"]
-    assert {"name": "customer_id", "type": "INTEGER", "primary_key": True, "nullable": True} in cols
+    assert {"name": "customer_id", "type": "INTEGER", "primary_key": True, "nullable": False} in cols
 
 
 def test_describe_table_flags():
     cols = {c["name"]: c for c in tb.describe_table("customers")["columns"]}
-    assert cols["customer_id"]["primary_key"] and not cols["company_name"]["nullable"]
+    assert cols["customer_id"]["primary_key"] and not cols["customer_id"]["nullable"]
+    assert not cols["company_name"]["nullable"]
     assert cols["industry"]["nullable"] and not cols["industry"]["primary_key"]
 
 
@@ -143,3 +144,66 @@ def test_run_sql_rejects_bad_input(bad):
 def test_run_sql_passes_through_sql_errors():
     assert tb.run_sql("SELEC 1")["error"].startswith("SQL error:")
     assert tb.run_sql("SELECT * FROM nope")["error"].startswith("SQL error:")
+
+
+def test_sample_rows_infinite_n_returns_error():
+    assert "error" in tb.sample_rows("customers", float("inf"))
+
+
+def test_run_sql_truncated_has_note_and_full_does_not():
+    assert "LIMIT" in tb.run_sql("SELECT * FROM invoices")["note"]
+    assert "note" not in tb.run_sql("SELECT * FROM plans")
+
+
+def test_run_sql_boundary_50_vs_51_rows():
+    exact = tb.run_sql("SELECT * FROM customers LIMIT 50")
+    assert exact["row_count"] == 50 and exact["truncated"] is False
+    over = tb.run_sql("SELECT * FROM customers LIMIT 51")
+    assert over["row_count"] == 50 and over["truncated"] is True
+
+
+def test_run_sql_other_programming_error_not_mislabeled():
+    err = tb.run_sql("SELECT ?")["error"]  # unbound parameter -> ProgrammingError
+    assert err.startswith("SQL error:") and "one SQL statement" not in err
+
+
+@pytest.mark.parametrize("expr,expected", [
+    ("2 + 3 * 4", 14), ("(2 + 3) * 4", 20), ("7 // 2", 3), ("7 % 3", 1), ("7 / 2", 3.5),
+    ("2 ** 10", 1024), ("-3 + +2", -1), ("round(2.567, 1)", 2.6), ("abs(-4)", 4),
+    ("min(3, 1, 2)", 1), ("max(1, 5)", 5), ("0.1 + 0.2", 0.3), ("1 / 3", 0.3333333333),
+])
+def test_calculate_values(expr, expected):
+    assert tb.calculate(expr)["result"] == expected
+
+
+@pytest.mark.parametrize("expr", [
+    "True + 1", "'a' + 'b'", "None", "x + 1", "(1).real", "__import__('os')", "lambda: 1", "1 < 2",
+    "[1, 2]", "round(2.5, ndigits=1)", "max(*[1, 2])", "sum(1)", "min()", "abs.__call__(1)", "1 +",
+])
+def test_calculate_rejects_unsafe_or_invalid(expr):
+    assert "error" in tb.calculate(expr)
+
+
+@pytest.mark.parametrize("expr", ["2 ** 1000", "9 ** 9 ** 9", "2 ** (50 + 60)", "2 ** -101", "1e308 * 10"])
+def test_calculate_caps_exponents_and_overflow(expr):
+    assert "error" in tb.calculate(expr)
+
+
+def test_calculate_length_cap():
+    assert "too long" in tb.calculate("1+" * 100 + "1")["error"]  # 201 characters
+    assert tb.calculate("1+" * 99 + "1")["result"] == 100  # 199 characters is fine
+
+
+def test_calculate_deep_nesting_returns_error_not_exception():
+    assert "error" in tb.calculate("(" * 190 + "1" + ")" * 5)  # unbalanced -> syntax error
+    assert "result" in tb.calculate("-" * 100 + "1")  # deep but valid
+
+
+@pytest.mark.parametrize("expr", ["1 / 0", "1 // 0", "1 % 0", "1.0 / 0"])
+def test_calculate_division_by_zero(expr):
+    assert tb.calculate(expr)["error"] == "Division by zero."
+
+
+@pytest.mark.parametrize("bad", ["", "  ", None, 5])
+def test_calculate_rejects_bad_input(bad):
+    assert "error" in tb.calculate(bad)
