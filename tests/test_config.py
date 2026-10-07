@@ -12,8 +12,7 @@ def test_data_paths_exist():
     # Confirm that the configured glossary path refers to a file.
     assert GLOSSARY_PATH.is_file()
 
-
-# Verify the error raised when a required environment variable is missing.
+# this checks that the helper fails loudly and tells you which variable is missing, which is the behavior you wanted.
 def test_require_env_names_missing_variable(monkeypatch):
     # Remove the variable for this test, without failing if it was already absent.
     monkeypatch.delenv("AGENT_EVAL_NOT_SET", raising=False)
