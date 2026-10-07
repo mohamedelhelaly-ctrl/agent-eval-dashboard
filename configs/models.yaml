@@ -1,0 +1,44 @@
+models:
+  ling:
+    id: inclusionai/ling-3.0-flash-sante
+    display_name: Ling 3.0 Flash
+    tier: free
+    price_in_per_m: 0.0
+    price_out_per_m: 0.0
+    params_total_b: 124
+    params_active_b: 5.1
+    provider: null
+    notes: Free tier, health-specialised. Daily request limits apply.
+
+  solar:
+    id: upstage/solar-mini4
+    display_name: Solar Mini 4
+    tier: budget
+    price_in_per_m: 0.05
+    price_out_per_m: 0.20
+    params_total_b: 35
+    params_active_b: 3
+    provider: null
+    notes: null
+
+  luna:
+    id: openai/gpt-6-luna
+    display_name: GPT-6 Luna
+    tier: mid
+    price_in_per_m: 0.10
+    price_out_per_m: 0.50
+    params_total_b: null
+    params_active_b: null
+    provider: null
+    notes: Size not disclosed.
+    
+  gemini:
+    id: google/gemini-3.8-flash
+    display_name: Gemini 3.8 Flash
+    tier: premium
+    price_in_per_m: 0.75
+    price_out_per_m: 3.75
+    params_total_b: null
+    params_active_b: null
+    provider: null
+    notes: Size not disclosed.
