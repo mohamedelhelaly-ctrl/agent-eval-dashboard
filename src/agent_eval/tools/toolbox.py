@@ -8,6 +8,7 @@ from contextlib import closing
 from pathlib import Path
 
 from agent_eval.config import DB_PATH, GLOSSARY_PATH
+from agent_eval.tools.specs import TOOL_SPECS
 
 MAX_ROWS = 50
 QUERY_TIMEOUT_S = 5
@@ -37,6 +38,48 @@ class Toolbox:
         if table not in names:
             return {"error": f"Unknown table {table!r}. Available tables: {', '.join(names)}"}
         return None
+
+    # Entry point for a model's tool call: look up the tool, parse its arguments, run it. Never raises.
+    def call(self, name, arguments=None) -> dict:
+        try:
+            # Build a lookup of public tool names and their argument specifications.
+            specs = {s["function"]["name"]: s["function"] for s in TOOL_SPECS}
+            # Only names published in TOOL_SPECS are callable; private helpers like _connect are not.
+            if not isinstance(name, str) or name not in specs:
+                return {"error": f"Unknown tool {name!r}. Available tools: {', '.join(specs)}"}
+
+            # Models may send a dict, a JSON string (possibly empty), or nothing at all.
+            # Treat missing or empty arguments as an empty object.
+            if arguments is None or (isinstance(arguments, str) and not arguments.strip()):
+                arguments = {}
+            
+            elif isinstance(arguments, str):
+                # Convert JSON text into Python values before passing it to the tool.
+                try:
+                    arguments = json.loads(arguments)
+                except json.JSONDecodeError as e:
+                    return {"error": f"arguments are not valid JSON: {e}"}
+            
+            # Tools expect named arguments, represented by a JSON object/dictionary.
+            if not isinstance(arguments, dict):
+                return {"error": "arguments must be a JSON object"}
+            
+            try:
+                # Find the selected method by name and call it with the supplied arguments.
+                return getattr(self, name)(**arguments)
+            except TypeError:
+                # If the call has wrong or missing parameters, report the expected parameter names.
+                params = specs[name]["parameters"]
+                expected = ", ".join(
+                    f"{p} (required)" if p in params["required"] else f"{p} (optional)"
+                    for p in params["properties"]
+                ) or "none"
+                return {"error": f"Invalid arguments for {name}. Expected parameters: {expected}"}
+        except Exception as e:
+            # Return unexpected failures as an error object rather than raising them to the caller.
+            return {"error": f"call failed: {e}"}
+
+
 
     # Tool 1: list the names of all user-created tables in the database.
     def list_tables(self) -> dict:
