@@ -1,0 +1,14 @@
+{
+  "seed": 42,
+  "as_of_date": "2026-01-01",
+  "data_start": "2023-01-01",
+  "data_end": "2025-12-31",
+  "row_counts": {
+    "customers": 500,
+    "plans": 4,
+    "subscriptions": 697,
+    "invoices": 5878,
+    "support_tickets": 1500
+  },
+  "content_sha256": "67fc3f2597b8140a229505456a3da814493ec8e99ba99e9505f698e1df6342a4"
+}

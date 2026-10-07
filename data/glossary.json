@@ -1,0 +1,46 @@
+{
+  "conventions": [
+    "Today's date for all questions is 2026-01-01. Data covers 2023-01-01 to 2025-12-31.",
+    "Business metrics exclude test accounts (customers.is_test_account = 1) unless a question says otherwise.",
+    "subscriptions.end_date is exclusive: it is the first day the subscription is no longer active. NULL means still running.",
+    "A subscription is active on date D if start_date <= D, (end_date IS NULL OR end_date > D), and status is not 'paused'. The status column records only the current state, so use dates, not status, to decide whether a subscription was active at a past date.",
+    "A plan change ends the old subscription (status 'cancelled', cancel_reason 'plan_change') and starts a new one on the same day. It is not a customer cancellation."
+  ],
+  "terms": [
+    {
+      "term": "active customer",
+      "aliases": ["active customers", "active account", "active accounts"],
+      "definition": "A non-test customer with at least one subscription that is active on the reference date. Subscription activity is decided by dates as defined in the conventions: start_date <= D and (end_date IS NULL OR end_date > D), excluding paused subscriptions. When a question gives no date, the reference date is today (2026-01-01)."
+    },
+    {
+      "term": "MRR",
+      "aliases": ["monthly recurring revenue", "recurring revenue"],
+      "definition": "As of a reference date D: the sum, over subscriptions active on D that belong to non-test customers, of the monthly-normalized list price of the subscription's plan. Monthly billing uses plans.monthly_price. Annual billing uses plans.annual_price divided by 12. Prices come from the plans table and no discounts exist."
+    },
+    {
+      "term": "churn rate",
+      "aliases": ["churn", "customer churn", "customer churn rate"],
+      "definition": "For a period from P_start (inclusive) to P_end (exclusive): the number of non-test customers active on P_start who are not active on P_end, divided by the number of non-test customers active on P_start. Customers not active on P_start are excluded from both numerator and denominator. A customer who changes plan stays active. A customer who cancels and re-subscribes within the period and is active on P_end is not churned. For a calendar quarter, P_start is the quarter's first day and P_end is the first day of the next quarter (Q1 2025 runs from 2025-01-01 to 2025-04-01)."
+    },
+    {
+      "term": "net revenue",
+      "aliases": ["revenue", "net sales", "collected revenue"],
+      "definition": "For a period, by invoice_date: the sum of (amount - refunded_amount) over invoices of non-test customers whose status is 'paid' or 'refunded'. A 'refunded' invoice was collected and then refunded in full or in part, so only the unrefunded remainder counts. Invoices with status 'failed' were never collected and contribute nothing."
+    },
+    {
+      "term": "ARPA",
+      "aliases": ["average revenue per account", "average revenue per customer", "ARPU"],
+      "definition": "MRR divided by the number of active customers, both measured on the same reference date and both excluding test accounts."
+    },
+    {
+      "term": "retention rate",
+      "aliases": ["retention", "customer retention", "customer retention rate"],
+      "definition": "One minus the churn rate for the same period, using the churn rate definition above."
+    },
+    {
+      "term": "resolution time",
+      "aliases": ["time to resolution", "time to resolve", "ticket resolution time"],
+      "definition": "For a support ticket: resolved_at minus created_at, expressed in hours. Only tickets with a non-NULL resolved_at are included, so unresolved tickets are excluded from counts and averages. Tickets belonging to test accounts are excluded."
+    }
+  ]
+}
