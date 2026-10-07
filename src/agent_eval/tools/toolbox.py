@@ -1,9 +1,14 @@
 import json
 import sqlite3
+import time
 from contextlib import closing
 from pathlib import Path
 
 from agent_eval.config import DB_PATH, GLOSSARY_PATH
+
+MAX_ROWS = 50
+QUERY_TIMEOUT_S = 5
+ALLOWED_ACTIONS = {sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ, sqlite3.SQLITE_FUNCTION, sqlite3.SQLITE_RECURSIVE}
 
 
 class Toolbox:
@@ -89,3 +94,63 @@ class Toolbox:
             return {"error": f"Unknown term {term!r}. Known terms: {known}"}
         except Exception as e:
             return {"error": f"lookup_metric_definition failed: {e}"}
+
+    # Tool 5: run one safe, read-only SQL query and return a bounded result or an error.
+    def run_sql(self, query: str) -> dict:
+
+        # Reject missing or whitespace-only input before opening the database.
+        if not isinstance(query, str) or not query.strip():
+            return {"error": "query must be a non-empty string"}
+        
+        # Track whether SQLite stopped the query because it exceeded the time limit.
+        timed_out = False
+
+        # Use a monotonic clock so changes to the system clock do not affect the deadline.
+        deadline = time.monotonic() + QUERY_TIMEOUT_S
+
+        # SQLite calls this for database operations; only explicitly allowed read operations pass.
+        def authorizer(action, *_):
+            # Allowlist: anything not explicitly listed (writes, PRAGMA, ATTACH...) is denied.
+            return sqlite3.SQLITE_OK if action in ALLOWED_ACTIONS else sqlite3.SQLITE_DENY
+
+
+        # SQLite periodically calls this while executing a query to enforce the time limit.
+        def progress():
+            nonlocal timed_out
+            # Record when the deadline has passed and request that SQLite abort the query.
+            timed_out = time.monotonic() > deadline
+            return 1 if timed_out else 0  # non-zero aborts the running query
+
+
+        try:
+            # Open a read-only connection and install the safety checks for this query.
+            with closing(self._connect()) as con:
+                con.set_authorizer(authorizer)
+                con.set_progress_handler(progress, 1000)  # called every 1000 VM steps
+
+                # Execute one SQL statement; SQLite rejects multiple statements in this call.
+                cur = con.execute(query)
+
+                # Capture output column names and fetch one extra row to detect truncation.
+                columns = [d[0] for d in cur.description or []]
+                rows = cur.fetchmany(MAX_ROWS + 1)  # one extra row reveals truncation
+
+                # Return at most MAX_ROWS rows, with an explicit count and truncation flag.
+                return {
+                    "columns": columns,
+                    "rows": [list(r) for r in rows[:MAX_ROWS]],
+                    "row_count": min(len(rows), MAX_ROWS),
+                    "truncated": len(rows) > MAX_ROWS,
+                }
+            
+        except sqlite3.ProgrammingError:
+            # Explain when the SQL API rejects multiple statements in one query.
+            return {"error": "Only one SQL statement is allowed per query."}
+        except sqlite3.Error as e:
+            # Distinguish an interrupted over-time query from other SQLite errors.
+            if timed_out:
+                return {"error": f"Query timed out after {QUERY_TIMEOUT_S} seconds."}
+            return {"error": f"SQL error: {e}"}
+        except Exception as e:
+            # Report unexpected failures in the same error-result format as other tools.
+            return {"error": f"run_sql failed: {e}"}
