@@ -28,13 +28,17 @@ def tool_call(id="call_1", name="run_sql", arguments='{"query": "SELECT 1"}'):
     return NS(id=id, type="function", function=NS(name=name, arguments=arguments))
 
 
-def response(content="hello", tool_calls=None, finish_reason="stop", usage="default", choices="default"):
+def response(content="hello", tool_calls=None, finish_reason="stop", usage="default", choices="default",
+             provider=None):
     if usage == "default":
         usage = NS(prompt_tokens=1000, completion_tokens=200, cost=0.0042,
                    prompt_tokens_details=NS(cached_tokens=400))
     if choices == "default":
         choices = [NS(message=NS(content=content, tool_calls=tool_calls), finish_reason=finish_reason)]
-    return NS(id="gen-123", model="vendor/m1-served", choices=choices, usage=usage)
+    resp = NS(id="gen-123", model="vendor/m1-served", choices=choices, usage=usage)
+    if provider is not None:  # OpenRouter adds this extra field; real responses may lack it
+        resp.provider = provider
+    return resp
 
 
 def run(resp=None, **kwargs):
@@ -80,6 +84,14 @@ def test_tool_calls_keep_raw_arguments_and_build_openai_message():
             {"id": "call_2", "type": "function", "function": {"name": "calculate", "arguments": "{bad json"}},
         ],
     }
+
+
+def test_provider_is_read_when_present():
+    assert run(response(provider="DeepInfra")).provider == "DeepInfra"
+
+
+def test_provider_is_none_when_absent():
+    assert run(response()).provider is None
 
 
 def test_usage_and_cost():
