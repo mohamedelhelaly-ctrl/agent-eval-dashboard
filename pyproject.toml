@@ -12,3 +12,5 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["live: calls the real OpenRouter API and costs money"]
+addopts = "-m 'not live'"

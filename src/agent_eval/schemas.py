@@ -110,3 +110,30 @@ def load_all_agents(agents_dir=AGENTS_DIR) -> dict[str, AgentConfig]:
         raise ValueError(f"No agent files (*.yaml) found in {agents_dir}")
     models = load_models()
     return {a.name: a for a in (load_agent(f, models=models) for f in files)}
+
+
+class ToolCall(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    name: str
+    arguments: str  # the raw JSON string the model sent; Toolbox.call parses it
+
+
+class LLMResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    content: str | None = None  # None when the model only requested tools
+    tool_calls: list[ToolCall] = Field(default_factory=list)
+    assistant_message: dict  # OpenAI-format message, ready to append for the next turn
+    finish_reason: str | None = None
+    # Token counts and costs are None when the provider didn't report them.
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    cached_tokens: int | None = None
+    cost_usd: float | None = None  # our estimate, from the ModelSpec prices
+    reported_cost_usd: float | None = None  # what OpenRouter says it charged
+    latency_s: float
+    response_id: str | None = None
+    served_model: str | None = None
+    started_at: str  # UTC, ISO 8601
