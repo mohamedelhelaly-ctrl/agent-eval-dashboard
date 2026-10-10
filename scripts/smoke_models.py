@@ -1,6 +1,6 @@
 """Manual smoke test: ask each model one question with the real tools, for two turns at most.
 
-Makes real, billed API calls (ling is free). Run from the project root with the package importable:
+Makes real, billed API calls (a full run costs a small fraction of a cent). Run from the project root with the package importable:
     PYTHONPATH=src .venv/bin/python scripts/smoke_models.py [--models ling solar]
 """
 import argparse

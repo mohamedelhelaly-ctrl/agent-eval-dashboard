@@ -86,7 +86,7 @@ def test_real_models_file_loads():
     assert list(models) == ["ling", "solar", "luna", "gemini"]
     assert all(isinstance(m, ModelSpec) for m in models.values())
     ling = models["ling"]
-    assert ling.tier == "free" and ling.price_in_per_m == 0 and ling.price_out_per_m == 0
+    assert ling.tier == "budget" and ling.price_in_per_m == 0.042 and ling.price_out_per_m == 0.1232
     assert ling.params_total_b == 124 and ling.params_active_b == 5.1
     assert models["luna"].params_total_b is None and models["gemini"].params_active_b is None
     assert models["gemini"].price_out_per_m == 3.75

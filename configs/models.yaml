@@ -2,13 +2,13 @@ models:
   ling:
     id: inclusionai/ling-3.0-flash-sante
     display_name: Ling 3.0 Flash
-    tier: free
-    price_in_per_m: 0.0
-    price_out_per_m: 0.0
+    tier: budget
+    price_in_per_m: 0.042
+    price_out_per_m: 0.1232
     params_total_b: 124
     params_active_b: 5.1
     provider: null
-    notes: Free tier, health-specialised. Daily request limits apply.
+    notes: Health-specialised. Single provider (Novita). Priced per OpenRouter listing; verify against reported cost.
 
   solar:
     id: upstage/solar-mini4
