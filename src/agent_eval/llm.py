@@ -125,6 +125,7 @@ def chat(client, spec: ModelSpec, messages: list[dict], tools: list[dict] | None
         response_id=getattr(response, "id", None),
         # Model name the provider actually served, which may differ from the requested ID.
         served_model=getattr(response, "model", None),
+        provider=getattr(response, "provider", None),
         # When the request started, in ISO 8601 UTC format.
         started_at=started_at,
     )

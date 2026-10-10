@@ -136,4 +136,5 @@ class LLMResult(BaseModel):
     latency_s: float
     response_id: str | None = None
     served_model: str | None = None
+    provider: str | None = None  # which upstream provider OpenRouter routed to
     started_at: str  # UTC, ISO 8601
