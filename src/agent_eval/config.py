@@ -17,6 +17,9 @@ CONFIGS_DIR = PROJECT_ROOT / "configs"
 MODELS_PATH = CONFIGS_DIR / "models.yaml"
 AGENTS_DIR = CONFIGS_DIR / "agents"
 PROMPTS_DIR = PROJECT_ROOT / "prompts"
+
+# Names used to build file paths (prompts, agents): letters, digits, _ and - only.
+IDENTIFIER_RE = re.compile(r"[A-Za-z0-9_-]+")
 RESULTS_DIR = PROJECT_ROOT / "results"
 
 # Read PROJECT_ROOT/.env into os.environ (silently does nothing if the file is missing).
@@ -44,7 +47,7 @@ def get_as_of_date() -> str:
 def render_prompt(name: str, prompts_dir=PROMPTS_DIR) -> str:
     """Load prompts/<name>.md and fill in {today}."""
     # Plain identifiers only, so the name can't climb out of prompts_dir (e.g. "../.env").
-    if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", name):
+    if not isinstance(name, str) or not IDENTIFIER_RE.fullmatch(name):
         raise ValueError(f"Invalid prompt name {name!r}: use only letters, digits, _ and -")
     path = Path(prompts_dir) / f"{name}.md"
     if not path.is_file():
