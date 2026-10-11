@@ -90,6 +90,28 @@ def test_real_models_file_loads():
     assert ling.params_total_b == 124 and ling.params_active_b == 5.1
     assert models["luna"].params_total_b is None and models["gemini"].params_active_b is None
     assert models["gemini"].price_out_per_m == 3.75
+    assert {k: m.provider for k, m in models.items()} == {
+        "ling": "novita", "solar": "upstage", "luna": "openai", "gemini": "google-ai-studio"}
+    assert all("Standard (not flex or priority) tier is pinned" in models[k].notes for k in ("luna", "gemini"))
+    assert {k: m.supports_temperature for k, m in models.items()} == {
+        "ling": True, "solar": True, "luna": False, "gemini": True}
+    assert "no temperature support" in models["luna"].notes
+    assert {k: m.price_cached_in_per_m for k, m in models.items()} == {
+        "ling": 0.0084, "solar": 0.005, "luna": 0.01, "gemini": 0.075}
+    assert models["ling"].notes == "Health-specialised. Single provider (Novita). Prices match OpenRouter's reported cost."
+
+
+def test_cached_price_defaults_to_none_and_is_validated():
+    assert make().price_cached_in_per_m is None
+    assert make(price_cached_in_per_m=0).price_cached_in_per_m == 0
+    for bad in (-0.1, float("nan"), float("inf")):
+        with pytest.raises(ValueError):
+            make(price_cached_in_per_m=bad)
+
+
+def test_supports_temperature_defaults_to_true():
+    assert make().supports_temperature is True
+    assert make(supports_temperature=False).supports_temperature is False
 
 
 # ---------- AgentConfig ----------

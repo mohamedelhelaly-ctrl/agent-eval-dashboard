@@ -153,6 +153,110 @@ def test_make_client_requires_key_and_never_leaks_it(monkeypatch):
     assert client.max_retries == 0 and client.timeout == REQUEST_TIMEOUT_S == 90
 
 
+# ---------- cache-aware cost ----------
+
+LING = ModelSpec(id="inclusionai/ling-3.0-flash-sante", display_name="Ling", tier="budget", price_in_per_m=0.042,
+                 price_out_per_m=0.1232, price_cached_in_per_m=0.0084)
+
+
+def cost_for(spec, prompt, completion, cached="absent"):
+    details = {} if cached == "absent" else {"prompt_tokens_details": NS(cached_tokens=cached)}
+    usage = NS(prompt_tokens=prompt, completion_tokens=completion, **details)
+    return run(response(usage=usage)) if spec is SPEC else chat(FakeClient(response(usage=usage)), spec, MESSAGES)
+
+
+def test_ling_turn_two_cost_matches_what_openrouter_billed():
+    r = cost_for(LING, 1103, 51, cached=1024)
+    assert r.cost_usd == pytest.approx(1.82028e-05)
+    assert r.cached_tokens == 1024
+
+
+def test_no_cached_price_charges_cached_tokens_at_full_input_price():
+    r = cost_for(SPEC, 1000, 200, cached=400)  # SPEC has no cached price
+    assert r.cost_usd == pytest.approx((1000 * 2.0 + 200 * 10.0) / 1_000_000)
+
+
+def test_missing_cached_tokens_behave_like_zero():
+    full = (1103 * 0.042 + 51 * 0.1232) / 1_000_000
+    assert cost_for(LING, 1103, 51, cached=None).cost_usd == pytest.approx(full)
+    assert cost_for(LING, 1103, 51).cost_usd == pytest.approx(full)  # no details object at all
+    assert cost_for(LING, 1103, 51, cached=0).cost_usd == pytest.approx(full)
+
+
+def test_cached_tokens_above_prompt_tokens_are_clamped():
+    r = cost_for(LING, 1000, 10, cached=5000)
+    assert r.cost_usd == pytest.approx((1000 * 0.0084 + 10 * 0.1232) / 1_000_000)  # never negative
+    assert r.cached_tokens == 5000  # the raw reported value is kept
+
+
+def test_a_free_cached_price_of_zero_is_honored():
+    free_cache = ModelSpec(id="v/m", display_name="M", tier="mid", price_in_per_m=1.0, price_out_per_m=1.0,
+                           price_cached_in_per_m=0.0)
+    assert cost_for(free_cache, 1000, 0, cached=1000).cost_usd == 0.0
+
+
+def test_cost_still_needs_both_token_counts_with_cache_info():
+    usage = NS(prompt_tokens=1000, prompt_tokens_details=NS(cached_tokens=500))
+    assert run(response(usage=usage)).cost_usd is None
+
+
+# ---------- temperature support ----------
+
+def no_temp_spec():
+    return ModelSpec(id="vendor/m1", display_name="M1", tier="mid", price_in_per_m=1.0, price_out_per_m=1.0,
+                     supports_temperature=False)
+
+
+def test_temperature_is_sent_when_supported():
+    client = FakeClient(response())
+    chat(client, SPEC, MESSAGES, temperature=0.3)
+    assert client.calls[0]["temperature"] == 0.3
+
+
+def test_temperature_is_left_out_when_not_supported():
+    client = FakeClient(response())
+    chat(client, no_temp_spec(), MESSAGES, temperature=0.3)
+    call = client.calls[0]
+    assert "temperature" not in call
+    assert call["model"] == "vendor/m1" and call["messages"] == MESSAGES and call["extra_body"]["usage"]
+
+
+def test_temperature_stays_out_on_retries_too():
+    client = FakeClient(script=[rate_limit(), response()])
+    chat(client, no_temp_spec(), MESSAGES, sleep=lambda s: None)
+    assert all("temperature" not in c for c in client.calls) and len(client.calls) == 2
+
+
+# ---------- provider pinning ----------
+
+def pinned(tag="novita"):
+    return ModelSpec(id="vendor/m1", display_name="M1", tier="budget", price_in_per_m=2.0, price_out_per_m=10.0,
+                     provider=tag)
+
+
+def test_no_provider_means_no_provider_key_but_usage_still_requested():
+    client = FakeClient(response())
+    chat(client, SPEC, MESSAGES)
+    assert client.calls[0]["extra_body"] == {"usage": {"include": True}}
+    assert "provider" not in client.calls[0]["extra_body"]
+
+
+def test_provider_is_pinned_in_extra_body():
+    client = FakeClient(response())
+    chat(client, pinned("google-ai-studio"), MESSAGES, tools=[{"type": "function", "function": {"name": "x"}}])
+    body = client.calls[0]["extra_body"]
+    assert body["provider"] == {"order": ["google-ai-studio"], "allow_fallbacks": False, "require_parameters": True}
+    assert body["usage"] == {"include": True}
+    assert set(body) == {"usage", "provider"}
+
+
+def test_pin_is_sent_again_on_every_retry():
+    client = FakeClient(script=[rate_limit(), response()])
+    chat(client, pinned(), MESSAGES, sleep=lambda s: None)
+    assert [c["extra_body"]["provider"]["order"] for c in client.calls] == [["novita"], ["novita"]]
+    assert client.calls[0]["extra_body"] == client.calls[1]["extra_body"]
+
+
 # ---------- retries ----------
 
 def req():
