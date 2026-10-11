@@ -51,9 +51,20 @@ def total(turns, field):
     return None if any(v is None for v in values) else sum(values)
 
 
+# Reduce a provider name to lowercase letters and digits, so "Google AI Studio" and "google-ai-studio" compare equal.
+def normalize_provider(name):
+    return None if name is None else "".join(ch for ch in name.lower() if ch.isalnum())
+
+
+# True when a provider was pinned but a different one (or none) answered, i.e. the pin did not hold.
+def pin_mismatch(pinned, served) -> bool:
+    return bool(pinned) and normalize_provider(pinned) != normalize_provider(served)
+
+
 # Turn one model's raw record into a flat summary row: identifiers, what each turn did,
-# summed latency/tokens/cost, and whether our computed cost disagrees with the reported cost by >10%.
-def summarize(key: str, record: dict) -> dict:
+# summed latency/tokens/cost, whether our computed cost disagrees with the reported cost by >10%,
+# and whether the provider that answered differs from the pinned one.
+def summarize(key: str, record: dict, pinned_provider: str | None = None) -> dict:
     if "error" in record:
         return {"model": key, "error": record["error"]}
     turns = [t for t in (record["turn1"], record["turn2"]) if t]
@@ -67,6 +78,8 @@ def summarize(key: str, record: dict) -> dict:
         "model": key,
         "served_model": t1["served_model"],
         "provider": t1["provider"],
+        "pinned_provider": pinned_provider,
+        "pin_mismatch": pin_mismatch(pinned_provider, t1["provider"]),
         "turn1": f"{t1['finish_reason']} [{', '.join(tc['name'] for tc in t1['tool_calls'])}]",
         "turn2": None if t2 is None else (
             f"{t2['finish_reason']} | " + (t2["content"] or "").replace("\n", " ")[:80]
@@ -94,7 +107,8 @@ def print_table(rows):
             continue
         body.append([r["model"], fmt(r["served_model"]), fmt(r["provider"]), r["turn1"], fmt(r["turn2"]),
                      f"{r['latency_s']:.1f}s", fmt(r["tokens"]), fmt(r["computed_cost"], ".6f"),
-                     fmt(r["reported_cost"], ".6f"), "COST DIFF >10%" if r["cost_mismatch"] else ""])
+                     fmt(r["reported_cost"], ".6f"),
+                     " ".join(f for f, on in (("COST DIFF >10%", r["cost_mismatch"]), ("PIN MISMATCH", r["pin_mismatch"])) if on)])
     widths = [max(len(str(row[i])) for row in [header] + body) for i in range(len(header))]
     for row in [header] + body:
         print("  ".join(str(c).ljust(w) for c, w in zip(row, widths)).rstrip())
@@ -120,7 +134,7 @@ def main():
             records[key] = run_model(client, models[key], toolbox)
         except Exception as e:  # one model failing must not stop the others
             records[key] = {"error": scrub(f"{type(e).__name__}: {e}")}
-        rows.append(summarize(key, records[key]))
+        rows.append(summarize(key, records[key], models[key].provider))
 
     print_table(rows)
     out = RESULTS_DIR / "smoke" / f"smoke_{started.strftime('%Y%m%dT%H%M%SZ')}.json"
