@@ -5,10 +5,12 @@ models:
     tier: budget
     price_in_per_m: 0.042
     price_out_per_m: 0.1232
+    price_cached_in_per_m: 0.0084
     params_total_b: 124
     params_active_b: 5.1
-    provider: null
-    notes: Health-specialised. Single provider (Novita). Priced per OpenRouter listing; verify against reported cost.
+    provider: novita
+    supports_temperature: true
+    notes: Health-specialised. Single provider (Novita). Prices match OpenRouter's reported cost.
 
   solar:
     id: upstage/solar-mini4
@@ -16,9 +18,11 @@ models:
     tier: budget
     price_in_per_m: 0.05
     price_out_per_m: 0.20
+    price_cached_in_per_m: 0.005
     params_total_b: 35
     params_active_b: 3
-    provider: null
+    provider: upstage
+    supports_temperature: true
     notes: null
 
   luna:
@@ -27,10 +31,12 @@ models:
     tier: mid
     price_in_per_m: 0.10
     price_out_per_m: 0.50
+    price_cached_in_per_m: 0.01
     params_total_b: null
     params_active_b: null
-    provider: null
-    notes: Size not disclosed.
+    provider: openai
+    supports_temperature: false
+    notes: Size not disclosed. Standard (not flex or priority) tier is pinned. OpenRouter lists no temperature support for its hosts, so it runs at its built-in temperature.
     
   gemini:
     id: google/gemini-3.8-flash
@@ -38,7 +44,9 @@ models:
     tier: premium
     price_in_per_m: 0.75
     price_out_per_m: 3.75
+    price_cached_in_per_m: 0.075
     params_total_b: null
     params_active_b: null
-    provider: null
-    notes: Size not disclosed.
+    provider: google-ai-studio
+    supports_temperature: true
+    notes: Size not disclosed. Standard (not flex or priority) tier is pinned.
