@@ -133,7 +133,9 @@ class LLMResult(BaseModel):
     cached_tokens: int | None = None
     cost_usd: float | None = None  # our estimate, from the ModelSpec prices
     reported_cost_usd: float | None = None  # what OpenRouter says it charged
-    latency_s: float
+    latency_s: float  # the successful attempt only, never the failed tries or the waits
+    attempts: int = 1  # how many calls it took (1 = no retries)
+    retry_wait_s: float = 0.0  # total seconds slept between attempts
     response_id: str | None = None
     served_model: str | None = None
     provider: str | None = None  # which upstream provider OpenRouter routed to

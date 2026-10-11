@@ -1,9 +1,11 @@
 from types import SimpleNamespace as NS
 
+import httpx
+import openai
 import pytest
 
 from agent_eval import llm
-from agent_eval.llm import LLMError, chat, make_client
+from agent_eval.llm import REQUEST_TIMEOUT_S, LLMError, LLMUnavailable, chat, make_client
 from agent_eval.schemas import LLMResult, ModelSpec, load_models
 
 SPEC = ModelSpec(id="vendor/m1", display_name="M1", tier="budget", price_in_per_m=2.0, price_out_per_m=10.0)
@@ -13,12 +15,18 @@ MESSAGES = [{"role": "user", "content": "hi"}]
 class FakeClient:
     """Mimics client.chat.completions.create: records the call and returns a canned response."""
 
-    def __init__(self, response=None, error=None):
-        self.response, self.error, self.calls = response, error, []
+    def __init__(self, response=None, error=None, script=None):
+        # script: outcomes consumed one per call, in order; each is a response or an exception to raise.
+        self.response, self.error, self.script, self.calls = response, error, list(script or []), []
         self.chat = NS(completions=NS(create=self._create))
 
     def _create(self, **kwargs):
         self.calls.append(kwargs)
+        if self.script:
+            outcome = self.script.pop(0)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
         if self.error:
             raise self.error
         return self.response
@@ -124,9 +132,10 @@ def test_latency_uses_perf_counter(monkeypatch):
 
 
 @pytest.mark.parametrize("choices", [[], None])
-def test_no_choices_raises_llm_error(choices):
-    with pytest.raises(LLMError, match="no choices"):
-        run(response(choices=choices))
+def test_no_choices_raises_llm_unavailable(choices):
+    with pytest.raises(LLMUnavailable, match="no choices") as e:
+        run(response(choices=choices), sleep=lambda s: None)
+    assert isinstance(e.value, LLMError)  # still catchable as the base class
 
 
 def test_api_errors_propagate():
@@ -141,6 +150,109 @@ def test_make_client_requires_key_and_never_leaks_it(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test-secret")
     client = make_client()
     assert str(client.base_url).startswith("https://openrouter.ai/api/v1")
+    assert client.max_retries == 0 and client.timeout == REQUEST_TIMEOUT_S == 90
+
+
+# ---------- retries ----------
+
+def req():
+    return httpx.Request("POST", "https://x")
+
+
+def status_error(cls, code, headers=None):
+    return cls("msg", response=httpx.Response(code, request=req(), headers=headers), body=None)
+
+
+def rate_limit(headers=None):
+    return status_error(openai.RateLimitError, 429, headers)
+
+
+class Sleeper:
+    """Fake sleep: records what it was asked to wait and returns immediately."""
+
+    def __init__(self):
+        self.calls = []
+
+    def __call__(self, seconds):
+        self.calls.append(seconds)
+
+
+def run_script(script, **kwargs):
+    client, sleeper = FakeClient(script=script), Sleeper()
+    try:
+        return chat(client, SPEC, MESSAGES, sleep=sleeper, **kwargs), client, sleeper
+    except Exception as e:
+        return e, client, sleeper
+
+
+def test_first_try_success_has_no_retries():
+    r, client, sleeper = run_script([response()])
+    assert (r.attempts, r.retry_wait_s) == (1, 0.0) and sleeper.calls == [] and len(client.calls) == 1
+
+
+def test_429_then_success():
+    r, client, sleeper = run_script([rate_limit(), response()])
+    assert (r.attempts, r.retry_wait_s) == (2, 1.0) and sleeper.calls == [1.0] and len(client.calls) == 2
+
+
+def test_two_500s_then_success_doubles_the_wait():
+    r, _, sleeper = run_script([status_error(openai.InternalServerError, 500)] * 2 + [response()])
+    assert r.attempts == 3 and sleeper.calls == [1.0, 2.0] and r.retry_wait_s == 3.0
+
+
+def test_always_503_gives_up_after_four_calls():
+    err = status_error(openai.InternalServerError, 503)
+    e, client, sleeper = run_script([err] * 10)
+    assert isinstance(e, LLMUnavailable) and isinstance(e, LLMError)
+    assert len(client.calls) == 4 and sleeper.calls == [1.0, 2.0, 4.0]
+    assert "4 attempts" in str(e) and "InternalServerError" in str(e) and e.__cause__ is err
+
+
+@pytest.mark.parametrize("cls,code", [
+    (openai.BadRequestError, 400), (openai.AuthenticationError, 401),
+    (openai.PermissionDeniedError, 403), (openai.NotFoundError, 404),
+])
+def test_client_errors_propagate_immediately(cls, code):
+    err = status_error(cls, code)
+    e, client, sleeper = run_script([err, response()])
+    assert e is err and type(e) is cls and len(client.calls) == 1 and sleeper.calls == []
+
+
+def test_runtime_error_propagates_immediately():
+    e, client, sleeper = run_script([RuntimeError("boom"), response()])
+    assert type(e) is RuntimeError and len(client.calls) == 1 and sleeper.calls == []
+
+
+@pytest.mark.parametrize("error", [openai.APITimeoutError(request=req()),
+                                   openai.APIConnectionError(message="down", request=req())])
+def test_timeouts_and_connection_errors_are_retried(error):
+    r, client, sleeper = run_script([error, response()])
+    assert r.attempts == 2 and sleeper.calls == [1.0]
+
+
+@pytest.mark.parametrize("header,expected", [("5", 5.0), ("9999", 60.0), ("0", 0.0),
+                                             ("Wed, 21 Oct 2026 07:28:00 GMT", 1.0), ("-3", 0.0)])
+def test_retry_after_header(header, expected):
+    _, _, sleeper = run_script([rate_limit({"retry-after": header}), response()])
+    assert sleeper.calls == [expected]
+
+
+def test_empty_choices_then_good_response_is_retried():
+    r, client, sleeper = run_script([response(choices=[]), response(content="ok")])
+    assert r.content == "ok" and r.attempts == 2 and sleeper.calls == [1.0]
+
+
+def test_latency_measures_only_the_successful_attempt(monkeypatch):
+    # perf_counter is read at: failed attempt start, successful attempt start, successful attempt end.
+    ticks = iter([0.0, 50.0, 52.0])
+    monkeypatch.setattr(llm, "time", NS(perf_counter=lambda: next(ticks)))
+    r, _, sleeper = run_script([rate_limit({"retry-after": "30"}), response()])
+    assert r.latency_s == 2.0 and r.retry_wait_s == 30.0  # the 30s wait is not part of latency
+
+
+def test_max_retries_is_configurable():
+    e, client, _ = run_script([rate_limit()] * 5, max_retries=1)
+    assert isinstance(e, LLMUnavailable) and len(client.calls) == 2
 
 
 @pytest.mark.live
