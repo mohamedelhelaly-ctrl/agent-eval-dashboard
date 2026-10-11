@@ -16,10 +16,14 @@ class ModelSpec(BaseModel):
     tier: Literal["free", "budget", "mid", "premium"]
     price_in_per_m: float = Field(ge=0)
     price_out_per_m: float = Field(ge=0)
+    # What cached input tokens cost per million; None means the provider has no cache discount.
+    price_cached_in_per_m: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     params_total_b: float | None = Field(default=None, gt=0)
     params_active_b: float | None = Field(default=None, gt=0)
     provider: str | None = None
     notes: str | None = None
+    # False for models whose hosts accept no temperature setting: chat() then leaves it out of the request.
+    supports_temperature: bool = True
 
     @model_validator(mode="after")
     def _active_not_above_total(self):

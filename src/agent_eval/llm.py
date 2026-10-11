@@ -68,11 +68,17 @@ def chat(client, spec: ModelSpec, messages: list[dict], tools: list[dict] | None
         "model": spec.id,
         # Send the conversation history the model should respond to.
         "messages": messages,
-        # Control response randomness from 0.0 (deterministic) to higher values.
-        "temperature": temperature,
         # Ask the provider to include usage statistics so we can compute real cost.
         "extra_body": {"usage": {"include": True}},  # ask OpenRouter to report the real cost
     }
+    # Control response randomness from 0.0 (deterministic) upwards, but only for models that accept it;
+    # otherwise leave it out and the model runs at its built-in temperature.
+    if spec.supports_temperature:
+        kwargs["temperature"] = temperature
+    # Pin the upstream provider when the model config names one: no fallbacks, and it must support every parameter.
+    if spec.provider:
+        kwargs["extra_body"]["provider"] = {"order": [spec.provider], "allow_fallbacks": False,
+                                            "require_parameters": True}
     # Attach tool definitions only when they exist; some providers reject empty/null tool lists.
     if tools:
         kwargs["tools"] = tools  # some providers reject an empty or null tools field
@@ -136,7 +142,13 @@ def chat(client, spec: ModelSpec, messages: list[dict], tools: list[dict] | None
     cost_usd = None
     # Only calculate cost when both token counts are present.
     if prompt_tokens is not None and completion_tokens is not None:
-        cost_usd = (prompt_tokens * spec.price_in_per_m + completion_tokens * spec.price_out_per_m) / 1_000_000
+        # Cached tokens are part of the prompt and cost less. Clamp so a odd report can't make "uncached" negative.
+        cached = min(_dig(usage, "prompt_tokens_details", "cached_tokens") or 0, prompt_tokens)
+        uncached = prompt_tokens - cached
+        # Test for None, not falsiness: a cached price of exactly 0.0 (free cache reads) must be honored.
+        cached_price = spec.price_in_per_m if spec.price_cached_in_per_m is None else spec.price_cached_in_per_m
+        cost_usd = (uncached * spec.price_in_per_m + cached * cached_price
+                    + completion_tokens * spec.price_out_per_m) / 1_000_000
 
     # Build the final structured result that callers can inspect or save.
     return LLMResult(
